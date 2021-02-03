@@ -12,10 +12,11 @@
   
     "train": {
       "model": {
-        "architecture": "big_resnet",
+        "architecture": "T2T_ViT",
         "conditional_strategy": "ContraGAN",
-        "pos_collected_numerator": true,
-        "hypersphere_dim": 1024,
+        "pos_collected_numerator": false,
+        "hypersphere_dim": 1536,
+        "bottleneck_dim": 384,
         "nonlinear_embed": false,
         "normalize_embed": true,
         "g_spectral_norm": true,
@@ -36,15 +37,15 @@
         "optimizer": "Adam",
         "batch_size": 256,
         "accumulation_steps": 1,
-        "d_lr": 0.0002,
-        "g_lr": 0.00005,
+        "d_lr": 0.0004,
+        "g_lr": 0.0001,
         "momentum": "N/A",
         "nesterov": "N/A",
         "alpha": "N/A",
         "beta1": 0.0,
         "beta2": 0.999,
         "g_steps_per_iter": 1,
-        "d_steps_per_iter": 2,
+        "d_steps_per_iter": 1,
         "total_step": 200000
       },
   
@@ -52,11 +53,11 @@
         "adv_loss": "hinge",
   
         "contrastive_lambda": 1.0,
-        "margin": 0.0,
+        "margin": 0.90,
         "tempering_type": "constant",
         "tempering_step": "N/A",
-        "start_temperature": 1.0,
-        "end_temperature": 1.0,
+        "start_temperature": 0.25,
+        "end_temperature": 0.25,
   
         "weight_clipping_for_dis": false,
         "weight_clipping_bound": "N/A",

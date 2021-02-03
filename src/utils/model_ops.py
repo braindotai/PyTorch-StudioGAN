@@ -5,6 +5,9 @@
 # src/utils/model_ops.py
 
 
+from timm.models.layers import DropPath
+import numpy as np
+
 import torch
 import torch.nn as nn
 from torch.nn.utils import spectral_norm
@@ -57,6 +60,9 @@ def linear(in_features, out_features, bias=True):
 
 def embedding(num_embeddings, embedding_dim):
     return nn.Embedding(num_embeddings=num_embeddings, embedding_dim=embedding_dim)
+
+def dropout(rate):
+    return nn.Dropout(rate)
 
 def snconv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
     return spectral_norm(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
@@ -171,3 +177,12 @@ class Self_Attn(nn.Module):
         attn_g = self.conv1x1_attn(attn_g)
         return x + self.sigma*attn_g
 
+def get_sinusoid_encoding(n_position, d_hid):
+    ''' Sinusoid position encoding table '''
+    def get_position_angle_vec(position):
+        return [position / np.power(10000, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)]
+
+    sinusoid_table = np.array([get_position_angle_vec(pos_i) for pos_i in range(n_position)])
+    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])  # dim 2i
+    sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])  # dim 2i+1
+    return torch.FloatTensor(sinusoid_table).unsqueeze(0)

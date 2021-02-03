@@ -370,9 +370,11 @@ class make_worker(object):
                         p.data.clamp_(-self.weight_clipping_bound, self.weight_clipping_bound)
 
             if step_count % self.print_every == 0 and step_count !=0 and self.rank == 0:
+                """
                 if self.d_spectral_norm:
                     dis_sigmas = calculate_all_sn(self.dis_model)
                     self.writer.add_scalars('SN_of_dis', dis_sigmas, step_count)
+                """
 
             # ================== TRAIN G ================== #
             toggle_grad(self.dis_model, False, freeze_layers=-1)
@@ -460,11 +462,11 @@ class make_worker(object):
                                                 gen_loss=gen_acml_loss.item(),
                                                 )
                 self.logger.info(log_message)
-
+                """
                 if self.g_spectral_norm:
                     gen_sigmas = calculate_all_sn(self.gen_model)
                     self.writer.add_scalars('SN_of_gen', gen_sigmas, step_count)
-
+                """
                 self.writer.add_scalars('Losses', {'discriminator': dis_acml_loss.item(),
                                                    'generator': gen_acml_loss.item()}, step_count)
                 if self.ada:
@@ -571,16 +573,16 @@ class make_worker(object):
             fid_score, self.m1, self.s1 = calculate_fid_score(self.eval_dataloader, generator, self.dis_model, self.inception_model, self.num_eval[self.eval_type],
                                                               self.truncated_factor, self.prior, self.latent_op, self.latent_op_step4eval, self.latent_op_alpha,
                                                               self.latent_op_beta, self.rank, self.logger, self.mu, self.sigma, self.run_name)
-
+            print(fid_score)
             kl_score, kl_std = calculate_incep_score(self.eval_dataloader, generator, self.dis_model, self.inception_model, self.num_eval[self.eval_type],
                                                      self.truncated_factor, self.prior, self.latent_op, self.latent_op_step4eval, self.latent_op_alpha,
                                                      self.latent_op_beta, num_split, self.rank, self.logger)
-
+            print(kl_score)
             precision, recall, f_beta, f_beta_inv = calculate_f_beta_score(self.eval_dataloader, generator, self.dis_model, self.inception_model, self.num_eval[self.eval_type],
                                                                            num_run4PR, num_cluster4PR, beta4PR, self.truncated_factor, self.prior, self.latent_op,
                                                                            self.latent_op_step4eval, self.latent_op_alpha, self.latent_op_beta, self.rank, self.logger)
             PR_Curve = plot_pr_curve(precision, recall, self.run_name, self.logger)
-
+            """
             if self.conditional_strategy in ['ProjGAN', 'ContraGAN', 'Proxy_NCA_GAN']:
                 classes = torch.tensor([c for c in range(self.num_classes)], dtype=torch.long).to(self.rank)
                 if self.dataset_name == "cifar10":
@@ -590,7 +592,7 @@ class make_worker(object):
                 proxies = self.embedding_layer(classes)
                 sim_p = self.cosine_similarity(proxies.unsqueeze(1), proxies.unsqueeze(0))
                 sim_heatmap = plot_sim_heatmap(sim_p.detach().cpu().numpy(), labels, labels, self.run_name, self.logger)
-
+            """
             if self.D_loss.__name__ != "loss_wgan_dis":
                 real_train_acc, fake_acc = calculate_accuracy(self.train_dataloader, generator, self.dis_model, self.D_loss, self.num_eval[self.eval_type],
                                                               self.truncated_factor, self.prior, self.latent_op, self.latent_op_step, self.latent_op_alpha,

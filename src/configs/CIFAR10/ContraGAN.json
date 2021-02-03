@@ -11,7 +11,7 @@
   
     "train": {
       "model": {
-        "architecture": "big_resnet",
+        "architecture": "T2T_ViT",
         "conditional_strategy": "ContraGAN",
         "pos_collected_numerator": false,
         "hypersphere_dim": 512,

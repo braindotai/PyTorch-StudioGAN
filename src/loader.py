@@ -10,6 +10,7 @@ import os
 import random
 from os.path import dirname, abspath, exists, join
 from torchlars import LARS
+from timm.models.layers import trunc_normal_
 
 from data_utils.load_dataset import *
 from metrics.inception_network import InceptionV3
@@ -23,6 +24,7 @@ from sync_batchnorm.batchnorm import convert_model
 from worker import make_worker
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.nn import DataParallel
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -33,6 +35,7 @@ from torch.utils.tensorboard import SummaryWriter
 def prepare_train_eval(rank, world_size, run_name, train_config, model_config, hdf5_path_train):
     cfgs = dict2clsattr(train_config, model_config)
     prev_ada_p, step, best_step, best_fid, best_fid_checkpoint_path, mu, sigma, inception_model = None, 0, 0, None, None, None, None, None
+    T2T_ViT = True
     if cfgs.distributed_data_parallel:
         print("Use GPU: {} for training.".format(rank))
         setup(rank, world_size)
@@ -79,10 +82,16 @@ def prepare_train_eval(rank, world_size, run_name, train_config, model_config, h
     Gen = module.Generator(cfgs.z_dim, cfgs.shared_dim, cfgs.img_size, cfgs.g_conv_dim, cfgs.g_spectral_norm, cfgs.attention,
                            cfgs.attention_after_nth_gen_block, cfgs.activation_fn, cfgs.conditional_strategy, cfgs.num_classes,
                            cfgs.g_init, cfgs.G_depth, cfgs.mixed_precision).to(rank)
+    if cfgs.architecture == 'T2T_ViT':
+        ## 14, 6, 3
+        Dis = module.Discriminator(cfgs.img_size, 'transformer', cfgs.num_classes, 512, 24, 8, 3, cfgs.hypersphere_dim,
+                                   cfgs.bottleneck_dim, False, None, cfgs.activation_fn, cfgs.conditional_strategy, 0.1, 0.0, 0.1,
+                                   nn.LayerNorm, cfgs.d_spectral_norm, cfgs.d_init, cfgs.mixed_precision).to(rank)
 
-    Dis = module.Discriminator(cfgs.img_size, cfgs.d_conv_dim, cfgs.d_spectral_norm, cfgs.attention, cfgs.attention_after_nth_dis_block,
-                               cfgs.activation_fn, cfgs.conditional_strategy, cfgs.hypersphere_dim, cfgs.bottleneck_dim, cfgs.num_classes, cfgs.nonlinear_embed,
-                               cfgs.normalize_embed, cfgs.d_init, cfgs.D_depth, cfgs.mixed_precision).to(rank)
+    else:
+        Dis = module.Discriminator(cfgs.img_size, cfgs.d_conv_dim, cfgs.d_spectral_norm, cfgs.attention, cfgs.attention_after_nth_dis_block,
+                                cfgs.activation_fn, cfgs.conditional_strategy, cfgs.hypersphere_dim, cfgs.bottleneck_dim, cfgs.num_classes, cfgs.nonlinear_embed,
+                                cfgs.normalize_embed, cfgs.d_init, cfgs.D_depth, cfgs.mixed_precision).to(rank)
 
     if cfgs.ema:
         if rank == 0: logger.info('Prepare EMA for G with decay of {}.'.format(cfgs.ema_decay))
