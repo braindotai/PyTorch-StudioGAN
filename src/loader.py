@@ -83,10 +83,17 @@ def prepare_train_eval(rank, world_size, run_name, train_config, model_config, h
                            cfgs.attention_after_nth_gen_block, cfgs.activation_fn, cfgs.conditional_strategy, cfgs.num_classes,
                            cfgs.g_init, cfgs.G_depth, cfgs.mixed_precision).to(rank)
     if cfgs.architecture == 'T2T_ViT':
-        ## 14, 6, 3
-        Dis = module.Discriminator(cfgs.img_size, 'transformer', cfgs.num_classes, 512, 24, 8, 3, cfgs.hypersphere_dim,
-                                   cfgs.bottleneck_dim, False, None, cfgs.activation_fn, cfgs.conditional_strategy, 0.1, 0.0, 0.1,
-                                   nn.LayerNorm, cfgs.d_spectral_norm, cfgs.d_init, cfgs.mixed_precision).to(rank)
+        if cfgs.dataset_name == 'cifar10':
+            T2T_cfgs = {'embed_dim':256, 'depth':7, 'num_heads':4, 'mlp_ratio':3, 'token_dim':64}
+        elif cfgs.dataset_name == 'tiny_imagenet':
+            T2T_cfgs = {'embed_dim':384, 'depth':14, 'num_heads':6, 'mlp_ratio':3, 'token_dim':64}
+        else:
+            T2T_cfgs = {'embed_dim':512, 'depth':24, 'num_heads':8, 'mlp_ratio':3, 'token_dim':64}
+
+        Dis = module.Discriminator(cfgs.dataset_name, cfgs.img_size, cfgs.batch_size, 'transformer', T2T_cfgs['token_dim'], cfgs.num_classes,
+                                   T2T_cfgs['embed_dim'], T2T_cfgs['depth'], T2T_cfgs['num_heads'], T2T_cfgs['mlp_ratio'],
+                                   cfgs.hypersphere_dim, cfgs.bottleneck_dim, False, None, cfgs.activation_fn, cfgs.conditional_strategy,
+                                   0.1, 0.0, 0.1, cfgs.d_spectral_norm, cfgs.d_init, cfgs.mixed_precision).to(rank)
 
     else:
         Dis = module.Discriminator(cfgs.img_size, cfgs.d_conv_dim, cfgs.d_spectral_norm, cfgs.attention, cfgs.attention_after_nth_dis_block,

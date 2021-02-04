@@ -84,6 +84,9 @@ def batchnorm_1d(in_features, eps=1e-4, momentum=0.1, affine=True):
 def batchnorm_2d(in_features, eps=1e-4, momentum=0.1, affine=True):
     return nn.BatchNorm2d(in_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=True)
 
+def layernorm(in_features, eps=1e-4, affine=True):
+    return nn.LayerNorm(in_features, eps=eps, elementwise_affine=affine)
+
 
 class ConditionalBatchNorm2d(nn.Module):
     # https://github.com/voletiv/self-attention-GAN-pytorch
@@ -125,6 +128,51 @@ class ConditionalBatchNorm2d_for_skip_and_shared(nn.Module):
         bias = self.bias(y).view(y.size(0), -1, 1, 1)
         out = self.bn(x)
         return out * gain + bias
+
+
+class Layernorm2d(nn.Module):
+    def __init__(self, batch_size, num_features, spectral_norm):
+        super().__init__()
+        self.num_features = num_features
+        self.ln = layernorm(num_features, eps=1e-4, affine=False)
+
+        if spectral_norm:
+            self.embed = sn_embedding(2, num_features)
+        else:
+            self.embed = embedding(2, num_features)
+
+        self.zeros = torch.zeros([batch_size], dtype=torch.long)
+        self.ones = torch.ones([batch_size], dtype=torch.long)
+
+    def forward(self, x):
+        device = x.get_device()
+        gain = (1 + self.embed(self.zeros.to(device))).view(-1, 1, self.num_features)
+        bias = self.embed(self.ones.to(device)).view(-1, 1, self.num_features)
+        out = self.ln(x)
+        return out * gain + bias
+
+
+class Layernorm1d(nn.Module):
+    def __init__(self, batch_size, num_features, spectral_norm):
+        super().__init__()
+        self.num_features = num_features
+        self.ln = layernorm(num_features, eps=1e-4, affine=False)
+
+        if spectral_norm:
+            self.embed = sn_embedding(2, num_features)
+        else:
+            self.embed = embedding(2, num_features)
+
+        self.zeros = torch.zeros([batch_size], dtype=torch.long)
+        self.ones = torch.ones([batch_size], dtype=torch.long)
+
+    def forward(self, x):
+        device = x.get_device()
+        gain = (1 + self.embed(self.zeros.to(device))).view(-1, self.num_features)
+        bias = self.embed(self.ones.to(device)).view(-1, self.num_features)
+        out = self.ln(x)
+        return out * gain + bias
+
 
 
 class Self_Attn(nn.Module):
