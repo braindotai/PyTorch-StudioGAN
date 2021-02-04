@@ -84,7 +84,7 @@ def prepare_train_eval(rank, world_size, run_name, train_config, model_config, h
                            cfgs.g_init, cfgs.G_depth, cfgs.mixed_precision).to(rank)
     if cfgs.architecture == 'T2T_ViT':
         if cfgs.dataset_name == 'cifar10':
-            T2T_cfgs = {'embed_dim':256, 'depth':7, 'num_heads':4, 'mlp_ratio':3, 'token_dim':64}
+            T2T_cfgs = {'embed_dim':128+64, 'depth':6, 'num_heads':4, 'mlp_ratio':3, 'token_dim':64}
         elif cfgs.dataset_name == 'tiny_imagenet':
             T2T_cfgs = {'embed_dim':384, 'depth':14, 'num_heads':6, 'mlp_ratio':3, 'token_dim':64}
         else:
