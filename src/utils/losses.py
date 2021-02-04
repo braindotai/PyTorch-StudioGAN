@@ -133,8 +133,6 @@ class Conditional_Contrastive_loss(torch.nn.Module):
 
 
     def forward(self, inst_embed, proxy, negative_mask, labels, temperature, margin, fake=False):
-        if fake:
-            proxy = proxy.detach()
         similarity_matrix = self.calculate_similarity_matrix(inst_embed, inst_embed)/temperature
         similarity_matrix = self.remove_diag(similarity_matrix)
         similarity_max, _ = torch.max(similarity_matrix, dim=1, keepdim=True)
