@@ -1,5 +1,5 @@
 {
-    "data_processing":{ 
+    "data_processing":{
       "dataset_name": "tiny_imagenet",
       "data_path": "./data/TINY_ILSVRC2012",
       "img_size": 64,
@@ -13,8 +13,9 @@
       "model": {
         "architecture": "big_resnet",
         "conditional_strategy": "ContraGAN",
-        "pos_collected_numerator": true,
+        "pos_collected_numerator": false,
         "hypersphere_dim": 768,
+        "bottleneck_dim": 256,
         "nonlinear_embed": false,
         "normalize_embed": true,
         "g_spectral_norm": true,
@@ -34,7 +35,7 @@
       "optimization": {
         "optimizer": "Adam",
         "batch_size": 1024,
-        "accumulation_steps": 1, 
+        "accumulation_steps": 1,
         "d_lr": 0.0004,
         "g_lr": 0.0001,
         "momentum": "N/A",
@@ -51,9 +52,9 @@
         "adv_loss": "hinge",
   
         "contrastive_lambda": 1.0,
-        "margin": 0.0, 
-        "tempering_type": "discrete",
-        "tempering_step": 1,
+        "margin": 0.9,
+        "tempering_type": "constant",
+        "tempering_step": "N/A",
         "start_temperature": 1.0,
         "end_temperature": 1.0,
   

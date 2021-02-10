@@ -15,7 +15,8 @@
         "architecture": "big_resnet",
         "conditional_strategy": "ContraGAN",
         "pos_collected_numerator": true,
-        "hypersphere_dim": 1024,
+        "hypersphere_dim": 2048,
+        "bottleneck_dim": 512,
         "nonlinear_embed": false,
         "normalize_embed": true,
         "g_spectral_norm": true,
@@ -34,8 +35,8 @@
   
       "optimization": {
         "optimizer": "Adam",
-        "batch_size": 256,
-        "accumulation_steps": 8, 
+        "batch_size": 512,
+        "accumulation_steps": 4,
         "d_lr": 0.0002,
         "g_lr": 0.00005,
         "momentum": "N/A",
@@ -52,11 +53,11 @@
         "adv_loss": "hinge",
   
         "contrastive_lambda": 1.0,
-        "margin": 0.0, 
+        "margin": 0.90, 
         "tempering_type": "constant",
         "tempering_step": "N/A",
-        "start_temperature": 1.0,
-        "end_temperature": 1.0,
+        "start_temperature": 0.25,
+        "end_temperature": 0.25,
   
         "weight_clipping_for_dis": false,
         "weight_clipping_bound": "N/A",
