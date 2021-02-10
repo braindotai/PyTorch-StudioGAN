@@ -27,7 +27,7 @@
         "z_dim": 80,
         "shared_dim": 128,
         "g_conv_dim": 96,
-        "d_conv_dim": "N/A",
+        "d_conv_dim": 96,
         "G_depth": "N/A",
         "D_depth": "N/A"
       },
@@ -52,9 +52,9 @@
         "adv_loss": "hinge",
   
         "contrastive_lambda": 1.0,
-        "margin": 0.90,
-        "tempering_type": "discrete",
-        "tempering_step": 1,
+        "margin": 0.90, 
+        "tempering_type": "constant",
+        "tempering_step": "N/A",
         "start_temperature": 0.25,
         "end_temperature": 0.25,
   

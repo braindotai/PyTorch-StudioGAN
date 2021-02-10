@@ -26,6 +26,7 @@ from utils.misc import *
 from utils.losses import calc_derv4gp, calc_derv4dra, calc_derv, latent_optimise, set_temperature
 from utils.losses import Conditional_Contrastive_loss, Proxy_NCA_loss, NT_Xent_loss
 from utils.diff_aug import DiffAugment
+from utils.simclr_aug import SimCLRAugment
 from utils.cr_diff_aug import CR_DiffAug
 
 import torch
@@ -154,6 +155,7 @@ class make_worker(object):
         self.l2_loss = torch.nn.MSELoss()
         self.ce_loss = torch.nn.CrossEntropyLoss()
         self.cosine_similarity = torch.nn.CosineSimilarity(dim=-1)
+        self.SimCLRAugment = SimCLRAugment(s=0.5)
         self.policy = "color,translation,cutout"
         self.counter = 0
 
