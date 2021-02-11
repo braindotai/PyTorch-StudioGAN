@@ -1,284 +1,372 @@
-# Training GANs with Stronger Augmentations via Contrastive Discriminator
-# Jongheon Jeong, Jinwoo Shin
+"""
+MIT License
+
+Copyright (c) 2019 Kim Seonghyeon
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
 
 import math
-import numbers
-import random
-
 import numpy as np
+
+from utils.ada_op import upfirdn2d
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn.functional import affine_grid, grid_sample
-from torch.autograd import Function
+from torch.nn import functional as F
 
 
 
-class SimCLRAugment(nn.Module):
-    def __init__(self, s):
-        super(SimCLRAugment, self).__init__()
-        self.RandomResizeCrop = RandomResizeCropLayer(scale=(0.5, 1.0), ratio=(3./4., 4./3.))
-        self.HorizontalFlip = HorizontalFlipLayer()
-        # self.ColorJitter = ColorJitterLayer(0.8*s, 0.8*s, 0.8*s, 0.*s)
-
-    def forward(self, x):
-        x = self.RandomResizeCrop(x)
-        x = self.HorizontalFlip(x)
-        # x = self.ColorJitter(x)
-        return x
-
-
-class HorizontalFlipLayer(nn.Module):
-    def __init__(self):
-        super(HorizontalFlipLayer, self).__init__()
-
-        _eye = torch.eye(2, 3)
-        self.register_buffer('_eye', _eye)
-
-    def forward(self, inputs):
-        _device = inputs.device
-
-        N = inputs.size(0)
-        _theta = self._eye.repeat(N, 1, 1)
-        r_sign = torch.bernoulli(torch.ones(N, device=_device) * 0.5) * 2 - 1
-        _theta[:, 0, 0] = r_sign
-        grid = affine_grid(_theta, inputs.size(), align_corners=False).to(_device)
-        output = grid_sample(inputs, grid, padding_mode='reflection', align_corners=False)
-        return output
+SYM6 = (
+    0.015404109327027373,
+    0.0034907120842174702,
+    -0.11799011114819057,
+    -0.048311742585633,
+    0.4910559419267466,
+    0.787641141030194,
+    0.3379294217276218,
+    -0.07263752278646252,
+    -0.021060292512300564,
+    0.04472490177066578,
+    0.0017677118642428036,
+    -0.007800708325034148,
+)
 
 
-class RandomResizeCropLayer(nn.Module):
-    def __init__(self, scale, ratio=(3./4., 4./3.)):
-        '''
-            Inception Crop
-            scale (tuple): range of size of the origin size cropped
-            ratio (tuple): range of aspect ratio of the origin aspect ratio cropped
-        '''
-        super(RandomResizeCropLayer, self).__init__()
+def translate_mat(t_x, t_y):
+    batch = t_x.shape[0]
 
-        _eye = torch.eye(2, 3)
-        self.register_buffer('_eye', _eye)
-        self.scale = scale
-        self.ratio = ratio
+    mat = torch.eye(3).unsqueeze(0).repeat(batch, 1, 1)
+    translate = torch.stack((t_x, t_y), 1)
+    mat[:, :2, 2] = translate
 
-    def forward(self, inputs):
-        _device = inputs.device
-        N, _, width, height = inputs.shape
-
-        _theta = self._eye.repeat(N, 1, 1)
-
-        # N * 10 trial
-        area = height * width
-        target_area = np.random.uniform(*self.scale, N * 10) * area
-        log_ratio = (math.log(self.ratio[0]), math.log(self.ratio[1]))
-        aspect_ratio = np.exp(np.random.uniform(*log_ratio, N * 10))
-
-        # If doesn't satisfy ratio condition, then do central crop
-        w = np.round(np.sqrt(target_area * aspect_ratio))
-        h = np.round(np.sqrt(target_area / aspect_ratio))
-        cond = (0 < w) * (w <= width) * (0 < h) * (h <= height)
-        w = w[cond]
-        h = h[cond]
-        if len(w) > N:
-            inds = np.random.choice(len(w), N, replace=False)
-            w = w[inds]
-            h = h[inds]
-        transform_len = len(w)
-
-        r_w_bias = np.random.randint(w - width, width - w + 1) / width
-        r_h_bias = np.random.randint(h - height, height - h + 1) / height
-        w = w / width
-        h = h / height
-
-        _theta[:transform_len, 0, 0] = torch.tensor(w, device=_device)
-        _theta[:transform_len, 1, 1] = torch.tensor(h, device=_device)
-        _theta[:transform_len, 0, 2] = torch.tensor(r_w_bias, device=_device)
-        _theta[:transform_len, 1, 2] = torch.tensor(r_h_bias, device=_device)
-
-        grid = affine_grid(_theta, inputs.size(), align_corners=False).to(_device)
-        output = grid_sample(inputs, grid, padding_mode='reflection', align_corners=False)
-
-        return output
+    return mat
 
 
-class ColorJitterLayer(nn.Module):
-    def __init__(self, brightness, contrast, saturation, hue):
-        super(ColorJitterLayer, self).__init__()
-        self.brightness = self._check_input(brightness, 'brightness')
-        self.contrast = self._check_input(contrast, 'contrast')
-        self.saturation = self._check_input(saturation, 'saturation')
-        self.hue = self._check_input(hue, 'hue', center=0, bound=(-0.5, 0.5),
-                                     clip_first_on_zero=False)
+def rotate_mat(theta):
+    batch = theta.shape[0]
+    mat = torch.eye(3).unsqueeze(0).repeat(batch, 1, 1)
+    sin_t = torch.sin(theta)
+    cos_t = torch.cos(theta)
+    rot = torch.stack((cos_t, -sin_t, sin_t, cos_t), 1).view(batch, 2, 2)
+    mat[:, :2, :2] = rot
+
+    return mat
 
 
-    def _check_input(self, value, name, center=1, bound=(0, float('inf')), clip_first_on_zero=True):
-        if isinstance(value, numbers.Number):
-            if value < 0:
-                raise ValueError("If {} is a single number, it must be non negative.".format(name))
-            value = [center - value, center + value]
-            if clip_first_on_zero:
-                value[0] = max(value[0], 0)
-        elif isinstance(value, (tuple, list)) and len(value) == 2:
-            if not bound[0] <= value[0] <= value[1] <= bound[1]:
-                raise ValueError("{} values should be between {}".format(name, bound))
-        else:
-            raise TypeError("{} should be a single number or a list/tuple with lenght 2.".format(name))
+def scale_mat(s_x, s_y):
+    batch = s_x.shape[0]
+    mat = torch.eye(3).unsqueeze(0).repeat(batch, 1, 1)
+    mat[:, 0, 0] = s_x
+    mat[:, 1, 1] = s_y
 
-        # if value is 0 or (1., 1.) for brightness/contrast/saturation
-        # or (0., 0.) for hue, do nothing
-        if value[0] == value[1] == center:
-            value = None
-        return value
-
-    def adjust_contrast(self, x):
-        if self.contrast:
-            factor = x.new_empty(x.size(0), 1, 1, 1).uniform_(*self.contrast)
-            means = torch.mean(x, dim=[2, 3], keepdim=True)
-            x = (x - means) * factor + means
-        return torch.clamp(x, 0, 1)
-
-    def adjust_hsv(self, x):
-        f_h = x.new_zeros(x.size(0), 1, 1)
-        f_s = x.new_ones(x.size(0), 1, 1)
-        f_v = x.new_ones(x.size(0), 1, 1)
-
-        if self.hue:
-            f_h.uniform_(*self.hue)
-        if self.saturation:
-            f_s = f_s.uniform_(*self.saturation)
-        if self.brightness:
-            f_v = f_v.uniform_(*self.brightness)
-
-        return RandomHSVFunction.apply(x, f_h, f_s, f_v)
-
-    def transform(self, inputs):
-        # Shuffle transform
-        if np.random.rand() > 0.5:
-            transforms = [self.adjust_contrast, self.adjust_hsv]
-        else:
-            transforms = [self.adjust_hsv, self.adjust_contrast]
-
-        for t in transforms:
-            inputs = t(inputs)
-
-        return inputs
-
-    def forward(self, inputs):
-        return self.transform(inputs)
+    return mat
 
 
-class ContrastJitterLayer(nn.Module):
-    def __init__(self, contrast):
-        super(ContrastJitterLayer, self).__init__()
-        self.contrast = self._check_input(contrast, 'contrast')
+def translate3d_mat(t_x, t_y, t_z):
+    batch = t_x.shape[0]
 
-    def _check_input(self, value, name, center=1, bound=(0, float('inf')), clip_first_on_zero=True):
-        if isinstance(value, numbers.Number):
-            if value < 0:
-                raise ValueError("If {} is a single number, it must be non negative.".format(name))
-            value = [center - value, center + value]
-            if clip_first_on_zero:
-                value[0] = max(value[0], 0)
-        elif isinstance(value, (tuple, list)) and len(value) == 2:
-            if not bound[0] <= value[0] <= value[1] <= bound[1]:
-                raise ValueError("{} values should be between {}".format(name, bound))
-        else:
-            raise TypeError("{} should be a single number or a list/tuple with lenght 2.".format(name))
+    mat = torch.eye(4).unsqueeze(0).repeat(batch, 1, 1)
+    translate = torch.stack((t_x, t_y, t_z), 1)
+    mat[:, :3, 3] = translate
 
-        # if value is 0 or (1., 1.) for brightness/contrast/saturation
-        # or (0., 0.) for hue, do nothing
-        if value[0] == value[1] == center:
-            value = None
-        return value
-
-    def adjust_contrast(self, x):
-        if self.contrast:
-            factor = x.new_empty(x.size(0), 1, 1, 1).uniform_(*self.contrast)
-            means = torch.mean(x, dim=[2, 3], keepdim=True)
-            x = (x - means) * factor + means
-        return torch.clamp(x, 0, 1)
-
-    def forward(self, inputs):
-        return self.adjust_contrast(inputs)
+    return mat
 
 
+def rotate3d_mat(axis, theta):
+    batch = theta.shape[0]
 
-class RandomHSVFunction(Function):
-    @staticmethod
-    def forward(ctx, x, f_h, f_s, f_v):
-        # ctx is a context object that can be used to stash information
-        # for backward computation
-        x = rgb2hsv(x)
-        h = x[:, 0, :, :]
-        h += (f_h * 255. / 360.)
-        h = (h % 1)
-        x[:, 0, :, :] = h
-        x[:, 1, :, :] = x[:, 1, :, :] * f_s
-        x[:, 2, :, :] = x[:, 2, :, :] * f_v
-        x = torch.clamp(x, 0, 1)
-        x = hsv2rgb(x)
-        return x
+    u_x, u_y, u_z = axis
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        # We return as many input gradients as there were arguments.
-        # Gradients of non-Tensor arguments to forward must be None.
-        grad_input = None
-        if ctx.needs_input_grad[0]:
-            grad_input = grad_output.clone()
-        return grad_input, None, None, None
+    eye = torch.eye(3).unsqueeze(0)
+    cross = torch.tensor([(0, -u_z, u_y), (u_z, 0, -u_x), (-u_y, u_x, 0)]).unsqueeze(0)
+    outer = torch.tensor(axis)
+    outer = (outer.unsqueeze(1) * outer).unsqueeze(0)
+
+    sin_t = torch.sin(theta).view(-1, 1, 1)
+    cos_t = torch.cos(theta).view(-1, 1, 1)
+
+    rot = cos_t * eye + sin_t * cross + (1 - cos_t) * outer
+
+    eye_4 = torch.eye(4).unsqueeze(0).repeat(batch, 1, 1)
+    eye_4[:, :3, :3] = rot
+
+    return eye_4
 
 
-def rgb2hsv(rgb):
-    """Convert a 4-d RGB tensor to the HSV counterpart.
-    Here, we compute hue using atan2() based on the definition in [1],
-    instead of using the common lookup table approach as in [2, 3].
-    Those values agree when the angle is a multiple of 30°,
-    otherwise they may differ at most ~1.2°.
-    >>> %timeit rgb2hsv(rgb)
-    1.07 ms ± 2.96 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
-    >>> %timeit rgb2hsv_fast(rgb)
-    380 µs ± 555 ns per loop (mean ± std. dev. of 7 runs, 1000 loops each)
-    >>> (rgb2hsv(rgb) - rgb2hsv_fast(rgb)).abs().max()
-    tensor(0.0031, device='cuda:0')
-    References
-    [1] https://en.wikipedia.org/wiki/Hue
-    [2] https://www.rapidtables.com/convert/color/rgb-to-hsv.html
-    [3] https://github.com/scikit-image/scikit-image/blob/master/skimage/color/colorconv.py#L212
-    """
+def scale3d_mat(s_x, s_y, s_z):
+    batch = s_x.shape[0]
 
-    r, g, b = rgb[:, 0, :, :], rgb[:, 1, :, :], rgb[:, 2, :, :]
+    mat = torch.eye(4).unsqueeze(0).repeat(batch, 1, 1)
+    mat[:, 0, 0] = s_x
+    mat[:, 1, 1] = s_y
+    mat[:, 2, 2] = s_z
 
-    Cmax = rgb.max(1)[0]
-    Cmin = rgb.min(1)[0]
-
-    hue = torch.atan2(math.sqrt(3) * (g - b), 2 * r - g - b)
-    hue = (hue % (2 * math.pi)) / (2 * math.pi)
-    saturate = 1 - Cmin / (Cmax + 1e-8)
-    value = Cmax
-    hsv = torch.stack([hue, saturate, value], dim=1)
-    hsv[~torch.isfinite(hsv)] = 0.
-    return hsv
+    return mat
 
 
-def hsv2rgb(hsv):
-    """Convert a 4-d HSV tensor to the RGB counterpart.
-    >>> %timeit hsv2rgb(hsv)
-    2.37 ms ± 13.4 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
-    >>> %timeit rgb2hsv_fast(rgb)
-    298 µs ± 542 ns per loop (mean ± std. dev. of 7 runs, 1000 loops each)
-    >>> torch.allclose(hsv2rgb(hsv), hsv2rgb_fast(hsv), atol=1e-6)
-    True
-    References
-    [1] https://en.wikipedia.org/wiki/HSL_and_HSV#HSV_to_RGB_alternative
-    """
+def luma_flip_mat(axis, i):
+    batch = i.shape[0]
 
-    h, s, v = hsv[:, [0]], hsv[:, [1]], hsv[:, [2]]
-    c = v * s
+    eye = torch.eye(4).unsqueeze(0).repeat(batch, 1, 1)
+    axis = torch.tensor(axis + (0,))
+    flip = 2 * torch.ger(axis, axis) * i.view(-1, 1, 1)
 
-    n = hsv.new_tensor([5, 3, 1]).view(3, 1, 1)
-    k = (n + h * 6) % 6
-    t = torch.min(k, 4.-k)
-    t = torch.clamp(t, 0, 1)
+    return eye - flip
 
-    return v - c * t
+
+def saturation_mat(axis, i):
+    batch = i.shape[0]
+
+    eye = torch.eye(4).unsqueeze(0).repeat(batch, 1, 1)
+    axis = torch.tensor(axis + (0,))
+    axis = torch.ger(axis, axis)
+    saturate = axis + (eye - axis) * i.view(-1, 1, 1)
+
+    return saturate
+
+
+def lognormal_sample(size, mean=0, std=1):
+    return torch.empty(size).log_normal_(mean=mean, std=std)
+
+
+def category_sample(size, categories):
+    category = torch.tensor(categories)
+    sample = torch.randint(high=len(categories), size=(size,))
+
+    return category[sample]
+
+
+def uniform_sample(size, low, high):
+    return torch.empty(size).uniform_(low, high)
+
+
+def normal_sample(size, mean=0, std=1):
+    return torch.empty(size).normal_(mean, std)
+
+
+def bernoulli_sample(size, p):
+    return torch.empty(size).bernoulli_(p)
+
+
+def random_mat_apply(p, transform, prev, eye):
+    size = transform.shape[0]
+    select = bernoulli_sample(size, p).view(size, 1, 1)
+    select_transform = select * transform + (1 - select) * eye
+
+    return select_transform @ prev
+
+
+def sample_affine(p, size, height, width):
+    G = torch.eye(3).unsqueeze(0).repeat(size, 1, 1)
+    eye = G
+
+    p_rot = 1 - math.sqrt(1 - p)
+
+    # anisotropic scale
+    param = lognormal_sample(size, std=0.2 * math.log(2))
+    Gc = scale_mat(param, 1 / param)
+    G = random_mat_apply(p, Gc, G, eye)
+
+    # flip
+    param = category_sample(size, (0, 1))
+    Gc = scale_mat(1 - 2.0 * param, torch.ones(size))
+    G = random_mat_apply(p, Gc, G, eye)
+
+    return G
+
+
+def sample_color(p, size):
+    C = torch.eye(4).unsqueeze(0).repeat(size, 1, 1)
+    eye = C
+    axis_val = 1 / math.sqrt(3)
+    axis = (axis_val, axis_val, axis_val)
+
+    # brightness
+    param = normal_sample(size, std=0.2)
+    Cc = translate3d_mat(param, param, param)
+    C = random_mat_apply(p, Cc, C, eye)
+
+    # contrast
+    param = lognormal_sample(size, std=0.5 * math.log(2))
+    Cc = scale3d_mat(param, param, param)
+    C = random_mat_apply(p, Cc, C, eye)
+
+    # hue rotation
+    param = uniform_sample(size, -math.pi, math.pi)
+    Cc = rotate3d_mat(axis, param)
+    C = random_mat_apply(p, Cc, C, eye)
+
+    # saturation
+    param = lognormal_sample(size, std=1 * math.log(2))
+    Cc = saturation_mat(axis, param)
+    C = random_mat_apply(p, Cc, C, eye)
+
+    return C
+
+
+def make_grid(shape, x0, x1, y0, y1, device):
+    n, c, h, w = shape
+    grid = torch.empty(n, h, w, 3, device=device)
+    grid[:, :, :, 0] = torch.linspace(x0, x1, w, device=device)
+    grid[:, :, :, 1] = torch.linspace(y0, y1, h, device=device).unsqueeze(-1)
+    grid[:, :, :, 2] = 1
+
+    return grid
+
+
+def affine_grid(grid, mat):
+    n, h, w, _ = grid.shape
+    return (grid.view(n, h * w, 3) @ mat.transpose(1, 2)).view(n, h, w, 2)
+
+
+def get_padding(G, height, width, pad_k):
+    extreme = (
+        G[:, :2, :]
+        @ torch.tensor([(-1.0, -1, 1), (-1, 1, 1), (1, -1, 1), (1, 1, 1)]).t()
+    )
+
+    size = torch.tensor((width, height))
+
+    pad_low = (
+        ((extreme.min(-1).values + 1) * size)
+        .clamp(max=0)
+        .abs()
+        .ceil()
+        .max(0)
+        .values.to(torch.int64)
+        .tolist()
+    )
+    pad_high = (
+        (extreme.max(-1).values * size - size)
+        .clamp(min=0)
+        .ceil()
+        .max(0)
+        .values.to(torch.int64)
+        .tolist()
+    )
+
+    h_pad_lth = np.clip([pad_low[0], pad_high[0]], a_max= height - pad_k - 1, a_min= -100000)
+    w_pad_lth = np.clip([pad_low[1], pad_high[1]], a_max= width - pad_k - 1, a_min= -100000)
+
+    return int(h_pad_lth[0]), int(h_pad_lth[1]), int(w_pad_lth[0]), int(w_pad_lth[1])
+
+
+def try_sample_affine_and_pad(img, p, pad_k, G=None):
+    batch, _, height, width = img.shape
+    G_try = G
+
+    if G is None:
+        G_try = sample_affine(p, batch, height, width)
+
+    pad_x1, pad_x2, pad_y1, pad_y2 = get_padding(
+        torch.inverse(G_try), height, width, pad_k,
+    )
+
+    img_pad = F.pad(
+        img,
+        (pad_x1 + pad_k, pad_x2 + pad_k, pad_y1 + pad_k, pad_y2 + pad_k),
+        mode="reflect",
+    )
+
+    return img_pad, G_try, (pad_x1, pad_x2, pad_y1, pad_y2)
+
+
+def random_apply_affine(img, p, G=None, antialiasing_kernel=SYM6):
+    kernel = antialiasing_kernel
+    len_k = len(kernel)
+    pad_k = (len_k + 1) // 2
+
+    kernel = torch.as_tensor(kernel)
+    kernel = torch.ger(kernel, kernel).to(img)
+    kernel_flip = torch.flip(kernel, (0, 1))
+
+    img_pad, G, (pad_x1, pad_x2, pad_y1, pad_y2) = try_sample_affine_and_pad(
+        img, p, pad_k, G
+    )
+
+    p_ux1 = pad_x1
+    p_ux2 = pad_x2 + 1
+    p_uy1 = pad_y1
+    p_uy2 = pad_y2 + 1
+    w_p = img_pad.shape[3] - len_k + 1
+    h_p = img_pad.shape[2] - len_k + 1
+    h_o = img.shape[2]
+    w_o = img.shape[3]
+    img_2x = upfirdn2d(img_pad, kernel_flip, up=2)
+
+    grid = make_grid(
+        img_2x.shape,
+        -2 * p_ux1 / w_o - 1,
+        2 * (w_p - p_ux1) / w_o - 1,
+        -2 * p_uy1 / h_o - 1,
+        2 * (h_p - p_uy1) / h_o - 1,
+        device=img_2x.device,
+    ).to(img_2x)
+    grid = affine_grid(grid, torch.inverse(G)[:, :2, :].to(img_2x))
+    grid = grid * torch.tensor(
+        [w_o / w_p, h_o / h_p], device=grid.device
+    ) + torch.tensor(
+        [(w_o + 2 * p_ux1) / w_p - 1, (h_o + 2 * p_uy1) / h_p - 1], device=grid.device
+    )
+
+    img_affine = F.grid_sample(
+        img_2x, grid, mode="bilinear", align_corners=False, padding_mode="zeros"
+    )
+
+    img_down = upfirdn2d(img_affine, kernel, down=2)
+
+    end_y = -pad_y2 - 1
+    if end_y == 0:
+        end_y = img_down.shape[2]
+
+    end_x = -pad_x2 - 1
+    if end_x == 0:
+        end_x = img_down.shape[3]
+
+    img = img_down[:, :, pad_y1:end_y, pad_x1:end_x]
+
+    return img, G
+
+
+def apply_color(img, mat):
+    batch = img.shape[0]
+    img = img.permute(0, 2, 3, 1)
+    mat_mul = mat[:, :3, :3].transpose(1, 2).view(batch, 1, 3, 3)
+    mat_add = mat[:, :3, 3].view(batch, 1, 1, 3)
+    img = img @ mat_mul + mat_add
+    img = img.permute(0, 3, 1, 2)
+
+    return img
+
+
+def random_apply_color(img, p, C=None):
+    if C is None:
+        C = sample_color(p, img.shape[0])
+
+    img = apply_color(img, C.to(img))
+
+    return img, C
+
+
+def SimCLRAugment(img, p=1.0, transform_matrix=(None, None)):
+    img, G = random_apply_affine(img, p, transform_matrix[0])
+    img, C = random_apply_color(img, p, transform_matrix[1])
+
+    return img, (G, C)

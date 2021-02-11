@@ -155,7 +155,6 @@ class make_worker(object):
         self.l2_loss = torch.nn.MSELoss()
         self.ce_loss = torch.nn.CrossEntropyLoss()
         self.cosine_similarity = torch.nn.CosineSimilarity(dim=-1)
-        self.SimCLRAugment = SimCLRAugment(s=0.5)
         self.policy = "color,translation,cutout"
         self.counter = 0
 
@@ -284,8 +283,8 @@ class make_worker(object):
                             pass
 
                         if self.cr:
-                            real_images_aug = self.SimCLRAugment(real_images)
-                            fake_images_aug = self.SimCLRAugment(fake_images)
+                            real_images_aug, _ = SimCLRAugment(real_images)
+                            fake_images_aug, _ = SimCLRAugment(fake_images)
                             if self.conditional_strategy == "ACGAN":
                                 cls_out_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
                                 cls_consistency_loss = self.l2_loss(cls_out_real, cls_out_real_aug)
@@ -294,8 +293,9 @@ class make_worker(object):
                             elif self.conditional_strategy in ["NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
                                 _, cls_embed_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels, fake=False)
                                 _, cls_embed_fake_aug, dis_out_fake_aug = self.dis_model(fake_images_aug, fake_labels, fake=True)
-                                dis_acml_loss += self.cosine_similarity(cls_embed_real, cls_embed_real_aug).mean()/t
-                                dis_acml_loss += self.cosine_similarity(cls_embed_fake, cls_embed_fake_aug).mean()/t
+                                cntr_consist_loss = -self.cosine_similarity(cls_embed_real, cls_embed_real_aug)/t
+                                cntr_consist_loss -= self.cosine_similarity(cls_embed_fake, cls_embed_fake_aug)/t
+                                dis_acml_loss  += cntr_consist_loss.mean()
 
                             else:
                                 raise NotImplementedError
@@ -438,9 +438,10 @@ class make_worker(object):
                             pass
 
                         if self.cr:
-                            fake_images_aug = self.SimCLRAugment(fake_images)
+                            fake_images_aug, _ = SimCLRAugment(fake_images)
                             _, cls_embed_fake_aug, dis_out_fake_aug = self.dis_model(fake_images_aug, fake_labels, fake=False)
-                            gen_acml_loss += self.cosine_similarity(cls_embed_fake, cls_embed_fake_aug).mean()/t
+                            contra_consist_loss = -self.cosine_similarity(cls_embed_fake, cls_embed_fake_aug)/t
+                            gen_acml_loss += contra_consist_loss.mean()
 
                         gen_acml_loss = gen_acml_loss/self.accumulation_steps
 

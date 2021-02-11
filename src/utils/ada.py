@@ -61,7 +61,6 @@ def translate_mat(t_x, t_y):
 
 def rotate_mat(theta):
     batch = theta.shape[0]
-
     mat = torch.eye(3).unsqueeze(0).repeat(batch, 1, 1)
     sin_t = torch.sin(theta)
     cos_t = torch.cos(theta)
@@ -73,7 +72,6 @@ def rotate_mat(theta):
 
 def scale_mat(s_x, s_y):
     batch = s_x.shape[0]
-
     mat = torch.eye(3).unsqueeze(0).repeat(batch, 1, 1)
     mat[:, 0, 0] = s_x
     mat[:, 1, 1] = s_y
@@ -184,7 +182,6 @@ def sample_affine(p, size, height, width):
     Gc = scale_mat(1 - 2.0 * param, torch.ones(size))
     G = random_mat_apply(p, Gc, G, eye)
     # print('flip', G, scale_mat(1 - 2.0 * param, torch.ones(size)), sep='\n')
-
     # 90 rotate
     param = category_sample(size, (0, 3))
     Gc = rotate_mat(-math.pi / 2 * param)
@@ -317,7 +314,6 @@ def get_padding(G, height, width, pad_k):
 
 def try_sample_affine_and_pad(img, p, pad_k, G=None):
     batch, _, height, width = img.shape
-
     G_try = G
 
     if G is None:
