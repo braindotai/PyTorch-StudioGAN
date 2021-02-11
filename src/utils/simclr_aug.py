@@ -19,12 +19,12 @@ class SimCLRAugment(nn.Module):
         super(SimCLRAugment, self).__init__()
         self.RandomResizeCrop = RandomResizeCropLayer(scale=(0.5, 1.0), ratio=(3./4., 4./3.))
         self.HorizontalFlip = HorizontalFlipLayer()
-        self.ColorJitter = ColorJitterLayer(0.8*s, 0.8*s, 0.8*s, 0.*s)
+        # self.ColorJitter = ColorJitterLayer(0.8*s, 0.8*s, 0.8*s, 0.*s)
 
     def forward(self, x):
         x = self.RandomResizeCrop(x)
         x = self.HorizontalFlip(x)
-        x = self.ColorJitter(x)
+        # x = self.ColorJitter(x)
         return x
 
 
@@ -42,7 +42,7 @@ class HorizontalFlipLayer(nn.Module):
         _theta = self._eye.repeat(N, 1, 1)
         r_sign = torch.bernoulli(torch.ones(N, device=_device) * 0.5) * 2 - 1
         _theta[:, 0, 0] = r_sign
-        grid = affine_grid(_theta, inputs.size(), align_corners=False)
+        grid = affine_grid(_theta, inputs.size(), align_corners=False).to(_device)
         output = grid_sample(inputs, grid, padding_mode='reflection', align_corners=False)
         return output
 
@@ -95,7 +95,7 @@ class RandomResizeCropLayer(nn.Module):
         _theta[:transform_len, 0, 2] = torch.tensor(r_w_bias, device=_device)
         _theta[:transform_len, 1, 2] = torch.tensor(r_h_bias, device=_device)
 
-        grid = affine_grid(_theta, inputs.size(), align_corners=False)
+        grid = affine_grid(_theta, inputs.size(), align_corners=False).to(_device)
         output = grid_sample(inputs, grid, padding_mode='reflection', align_corners=False)
 
         return output
@@ -263,14 +263,12 @@ def rgb2hsv(rgb):
 
 def hsv2rgb(hsv):
     """Convert a 4-d HSV tensor to the RGB counterpart.
-
     >>> %timeit hsv2rgb(hsv)
     2.37 ms ± 13.4 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
     >>> %timeit rgb2hsv_fast(rgb)
     298 µs ± 542 ns per loop (mean ± std. dev. of 7 runs, 1000 loops each)
     >>> torch.allclose(hsv2rgb(hsv), hsv2rgb_fast(hsv), atol=1e-6)
     True
-
     References
     [1] https://en.wikipedia.org/wiki/HSL_and_HSV#HSV_to_RGB_alternative
     """

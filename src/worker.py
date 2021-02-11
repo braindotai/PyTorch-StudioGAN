@@ -284,23 +284,27 @@ class make_worker(object):
                             pass
 
                         if self.cr:
-                            real_images_aug = CR_DiffAug(real_images)
+                            real_images_aug = self.SimCLRAugment(real_images)
+                            fake_images_aug = self.SimCLRAugment(fake_images)
                             if self.conditional_strategy == "ACGAN":
                                 cls_out_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
                                 cls_consistency_loss = self.l2_loss(cls_out_real, cls_out_real_aug)
                             elif self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
                                 dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
                             elif self.conditional_strategy in ["NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
-                                _, cls_embed_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
-                                cls_consistency_loss = self.l2_loss(cls_embed_real, cls_embed_real_aug)
+                                _, cls_embed_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels, fake=False)
+                                _, cls_embed_fake_aug, dis_out_fake_aug = self.dis_model(fake_images_aug, fake_labels, fake=True)
+                                dis_acml_loss += self.cosine_similarity(cls_embed_real, cls_embed_real_aug).mean()/t
+                                dis_acml_loss += self.cosine_similarity(cls_embed_fake, cls_embed_fake_aug).mean()/t
+
                             else:
                                 raise NotImplementedError
-
+                            """
                             consistency_loss = self.l2_loss(dis_out_real, dis_out_real_aug)
                             if self.conditional_strategy in ["ACGAN", "NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
                                 consistency_loss += cls_consistency_loss
                             dis_acml_loss += self.cr_lambda*consistency_loss
-
+                            """
                         if self.bcr:
                             real_images_aug = CR_DiffAug(real_images)
                             fake_images_aug = CR_DiffAug(fake_images)
@@ -432,6 +436,11 @@ class make_worker(object):
                             gen_acml_loss += self.contrastive_lambda*self.NT_Xent_criterion(cls_embed_fake, cls_embed_fake_aug, t)
                         else:
                             pass
+
+                        if self.cr:
+                            fake_images_aug = self.SimCLRAugment(fake_images)
+                            _, cls_embed_fake_aug, dis_out_fake_aug = self.dis_model(fake_images_aug, fake_labels, fake=False)
+                            gen_acml_loss += self.cosine_similarity(cls_embed_fake, cls_embed_fake_aug).mean()/t
 
                         gen_acml_loss = gen_acml_loss/self.accumulation_steps
 
