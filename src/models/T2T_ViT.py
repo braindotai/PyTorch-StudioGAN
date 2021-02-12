@@ -184,6 +184,7 @@ class Attention_T2T(nn.Module):
         self.in_dim = in_dim
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
+        self.activation = nn.ReLU(inplace=True)
 
         if sn:
             self.qkv = snlinear(dim, in_dim * 3, bias=qkv_bias)
@@ -202,7 +203,7 @@ class Attention_T2T(nn.Module):
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.in_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = self.activation((q @ k.transpose(-2, -1)) * self.scale) + self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
@@ -220,8 +221,8 @@ class Attention_backbone(nn.Module):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
-
         self.scale = qk_scale or head_dim ** -0.5
+        self.activation = nn.ReLU(inplace=True)
 
         if sn:
             self.qkv = snlinear(dim, dim * 3, bias=qkv_bias)
@@ -239,7 +240,7 @@ class Attention_backbone(nn.Module):
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = self.activation((q @ k.transpose(-2, -1)) * self.scale) + self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 

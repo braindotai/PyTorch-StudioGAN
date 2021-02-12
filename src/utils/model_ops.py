@@ -145,12 +145,14 @@ class Layernorm2d(nn.Module):
         self.ones = torch.ones([batch_size], dtype=torch.long)
 
     def forward(self, x):
+        """
         device = x.get_device()
         gain = (1 + self.embed(self.zeros.to(device))).view(-1, 1, self.num_features)
         bias = self.embed(self.ones.to(device)).view(-1, 1, self.num_features)
         out = self.ln(x)
         return out * gain + bias
-
+        """
+        return x
 
 class Layernorm1d(nn.Module):
     def __init__(self, batch_size, num_features, spectral_norm):
@@ -167,11 +169,14 @@ class Layernorm1d(nn.Module):
         self.ones = torch.ones([batch_size], dtype=torch.long)
 
     def forward(self, x):
+        """
         device = x.get_device()
         gain = (1 + self.embed(self.zeros.to(device))).view(-1, self.num_features)
         bias = self.embed(self.ones.to(device)).view(-1, self.num_features)
         out = self.ln(x)
         return out * gain + bias
+        """
+        return x
 
 
 

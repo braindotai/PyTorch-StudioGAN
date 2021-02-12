@@ -93,7 +93,7 @@ def prepare_train_eval(rank, world_size, run_name, train_config, model_config, h
         Dis = module.Discriminator(cfgs.dataset_name, cfgs.img_size, cfgs.batch_size, 'transformer', T2T_cfgs['token_dim'], cfgs.num_classes,
                                    T2T_cfgs['embed_dim'], T2T_cfgs['depth'], T2T_cfgs['num_heads'], T2T_cfgs['mlp_ratio'],
                                    cfgs.hypersphere_dim, cfgs.bottleneck_dim, False, None, cfgs.activation_fn, cfgs.conditional_strategy,
-                                   0.1, 0.0, 0.1, cfgs.d_spectral_norm, cfgs.d_init, cfgs.mixed_precision).to(rank)
+                                   0.0, 0.0, 0.0, cfgs.d_spectral_norm, cfgs.d_init, cfgs.mixed_precision).to(rank)
 
     else:
         Dis = module.Discriminator(cfgs.img_size, cfgs.d_conv_dim, cfgs.d_spectral_norm, cfgs.attention, cfgs.attention_after_nth_dis_block,

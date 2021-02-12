@@ -442,7 +442,6 @@ class make_worker(object):
                             _, cls_embed_fake_aug, dis_out_fake_aug = self.dis_model(fake_images_aug, fake_labels, fake=False)
                             contra_consist_loss = -self.cosine_similarity(cls_embed_fake, cls_embed_fake_aug)/t
                             gen_acml_loss += contra_consist_loss.mean()
-
                         gen_acml_loss = gen_acml_loss/self.accumulation_steps
 
                     if self.mixed_precision:
