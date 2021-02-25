@@ -15,9 +15,19 @@ import torch.nn.functional as F
 from torch.nn import DataParallel
 from torch import autograd
 
-
+def loss_acs_gen(dis_out_fake, fake_labels):
+    false_distribution_loss = -torch.mean(fake_labels * torch.log(dis_out_fake + 1e-8))
+    return false_distribution_loss
+    
+def loss_acs_dis(dis_out_real, real_labels, dis_out_fake, fake_labels):
+    real_distribution_loss = -torch.mean(real_labels * torch.log(dis_out_real + 1e-8))
+    real_complementary_loss = -torch.mean((1 - real_labels) * torch.log(1 - dis_out_real + 1e-8))
+    fake_distribution_loss = -torch.mean(fake_labels * torch.log(1 - dis_out_fake + 1e-8))
+    fake_complementary_loss = -torch.mean((1 - fake_labels) * torch.log(1 - dis_out_fake + 1e-8))
+    return real_distribution_loss + real_complementary_loss + fake_distribution_loss + fake_complementary_loss
 
 # DCGAN loss
+
 def loss_dcgan_dis(dis_out_real, dis_out_fake):
     device = dis_out_real.get_device()
     ones = torch.ones_like(dis_out_real, device=device, requires_grad=False)

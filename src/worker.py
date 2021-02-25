@@ -253,94 +253,43 @@ class make_worker(object):
                         if self.ada:
                             fake_images, _ = augment(fake_images, self.ada_aug_p)
 
-                        if self.conditional_strategy == "ACGAN":
-                            cls_out_real, dis_out_real = self.dis_model(real_images, real_labels)
-                            cls_out_fake, dis_out_fake = self.dis_model(fake_images, fake_labels)
-                        elif self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
-                            dis_out_real = self.dis_model(real_images, real_labels)
-                            dis_out_fake = self.dis_model(fake_images, fake_labels)
-                        elif self.conditional_strategy in ["NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
-                            cls_proxies_real, cls_embed_real, dis_out_real = self.dis_model(real_images, real_labels)
-                            cls_proxies_fake, cls_embed_fake, dis_out_fake = self.dis_model(fake_images, fake_labels)
-                        else:
-                            raise NotImplementedError
+                        dis_out_real = self.dis_model(real_images)
+                        dis_out_fake = self.dis_model(fake_images)
+                        # dis_acml_loss = self.D_loss(dis_out_real, dis_out_fake)
+                        dis_acml_loss = self.D_loss(dis_out_real, real_labels, dis_out_fake, fake_labels)
 
-                        dis_acml_loss = self.D_loss(dis_out_real, dis_out_fake)
-                        if self.conditional_strategy == "ACGAN":
-                            dis_acml_loss += (self.ce_loss(cls_out_real, real_labels) + self.ce_loss(cls_out_fake, fake_labels))
-                        elif self.conditional_strategy == "NT_Xent_GAN":
-                            real_images_aug = CR_DiffAug(real_images)
-                            _, cls_embed_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
-                            dis_acml_loss += self.contrastive_lambda*self.NT_Xent_criterion(cls_embed_real, cls_embed_real_aug, t)
-                        elif self.conditional_strategy == "Proxy_NCA_GAN":
-                            dis_acml_loss += self.contrastive_lambda*self.NCA_criterion(cls_embed_real, cls_proxies_real, real_labels)
-                        elif self.conditional_strategy == "ContraGAN":
-                            real_cls_mask = make_mask(real_labels, self.num_classes, self.local_rank)
-                            dis_acml_loss += self.contrastive_lambda*self.contrastive_criterion(cls_embed_real, cls_proxies_real,
-                                                                                                real_cls_mask, real_labels, t, self.margin)
-                        else:
-                            pass
-
+                        # cls_out_real
                         if self.cr:
                             real_images_aug = CR_DiffAug(real_images)
-                            if self.conditional_strategy == "ACGAN":
-                                cls_out_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
-                                cls_consistency_loss = self.l2_loss(cls_out_real, cls_out_real_aug)
-                            elif self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
-                                dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
-                            elif self.conditional_strategy in ["NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
-                                _, cls_embed_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
-                                cls_consistency_loss = self.l2_loss(cls_embed_real, cls_embed_real_aug)
+                            if self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
+                                dis_out_real_aug = self.dis_model(real_images_aug)
                             else:
                                 raise NotImplementedError
 
                             consistency_loss = self.l2_loss(dis_out_real, dis_out_real_aug)
-                            if self.conditional_strategy in ["ACGAN", "NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
-                                consistency_loss += cls_consistency_loss
                             dis_acml_loss += self.cr_lambda*consistency_loss
 
                         if self.bcr:
                             real_images_aug = CR_DiffAug(real_images)
                             fake_images_aug = CR_DiffAug(fake_images)
-                            if self.conditional_strategy == "ACGAN":
-                                cls_out_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
-                                cls_out_fake_aug, dis_out_fake_aug = self.dis_model(fake_images_aug, fake_labels)
-                                cls_bcr_real_loss = self.l2_loss(cls_out_real, cls_out_real_aug)
-                                cls_bcr_fake_loss = self.l2_loss(cls_out_fake, cls_out_fake_aug)
-                            elif self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
-                                dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
-                                dis_out_fake_aug = self.dis_model(fake_images_aug, fake_labels)
-                            elif self.conditional_strategy in ["ContraGAN", "Proxy_NCA_GAN", "NT_Xent_GAN"]:
-                                cls_proxies_real_aug, cls_embed_real_aug, dis_out_real_aug = self.dis_model(real_images_aug, real_labels)
-                                cls_proxies_fake_aug, cls_embed_fake_aug, dis_out_fake_aug = self.dis_model(fake_images_aug, fake_labels)
-                                cls_bcr_real_loss = self.l2_loss(cls_embed_real, cls_embed_real_aug)
-                                cls_bcr_fake_loss = self.l2_loss(cls_embed_fake, cls_embed_fake_aug)
+                            if self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
+                                dis_out_real_aug = self.dis_model(real_images_aug)
+                                dis_out_fake_aug = self.dis_model(fake_images_aug)
                             else:
                                 raise NotImplementedError
 
                             bcr_real_loss = self.l2_loss(dis_out_real, dis_out_real_aug)
                             bcr_fake_loss = self.l2_loss(dis_out_fake, dis_out_fake_aug)
-                            if self.conditional_strategy in ["ACGAN", "NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
-                                bcr_real_loss += cls_bcr_real_loss
-                                bcr_fake_loss += cls_bcr_fake_loss
                             dis_acml_loss += self.real_lambda*bcr_real_loss + self.fake_lambda*bcr_fake_loss
 
                         if self.zcr:
                             fake_images_zaug = self.gen_model(zs_t, fake_labels)
-                            if self.conditional_strategy == "ACGAN":
-                                cls_out_fake_zaug, dis_out_fake_zaug = self.dis_model(fake_images_zaug, fake_labels)
-                                cls_zcr_dis_loss = self.l2_loss(cls_out_fake, cls_out_fake_zaug)
                             elif self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
-                                dis_out_fake_zaug = self.dis_model(fake_images_zaug, fake_labels)
-                            elif self.conditional_strategy in ["ContraGAN", "Proxy_NCA_GAN", "NT_Xent_GAN"]:
-                                cls_proxies_fake_zaug, cls_embed_fake_zaug, dis_out_fake_zaug = self.dis_model(fake_images_zaug, fake_labels)
-                                cls_zcr_dis_loss = self.l2_loss(cls_embed_fake, cls_embed_fake_zaug)
+                                dis_out_fake_zaug = self.dis_model(fake_images_zaug)
                             else:
                                 raise NotImplementedError
 
                             zcr_dis_loss = self.l2_loss(dis_out_fake, dis_out_fake_zaug)
-                            if self.conditional_strategy in ["ACGAN", "NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
-                                zcr_dis_loss += cls_zcr_dis_loss
                             dis_acml_loss += self.dis_lambda*zcr_dis_loss
 
                         if self.gradient_penalty_for_dis:
@@ -398,17 +347,11 @@ class make_worker(object):
                         if self.ada:
                             fake_images, _ = augment(fake_images, self.ada_aug_p)
 
-                        if self.conditional_strategy == "ACGAN":
-                            cls_out_fake, dis_out_fake = self.dis_model(fake_images, fake_labels)
-                        elif self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
-                            dis_out_fake = self.dis_model(fake_images, fake_labels)
-                        elif self.conditional_strategy in ["NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
-                            fake_cls_mask = make_mask(fake_labels, self.num_classes, self.local_rank)
-                            cls_proxies_fake, cls_embed_fake, dis_out_fake = self.dis_model(fake_images, fake_labels)
-                        else:
+                        if self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
+                            dis_out_fake = self.dis_model(fake_images)
                             raise NotImplementedError
 
-                        gen_acml_loss = self.G_loss(dis_out_fake)
+                        gen_acml_loss = self.G_loss(dis_out_fake, fake_labels)
 
                         if self.latent_op:
                             gen_acml_loss += transport_cost*self.latent_norm_reg_weight
@@ -417,19 +360,6 @@ class make_worker(object):
                             fake_images_zaug = self.gen_model(zs_t, fake_labels)
                             zcr_gen_loss = -1 * self.l2_loss(fake_images, fake_images_zaug)
                             gen_acml_loss += self.gen_lambda*zcr_gen_loss
-
-                        if self.conditional_strategy == "ACGAN":
-                            gen_acml_loss += self.ce_loss(cls_out_fake, fake_labels)
-                        elif self.conditional_strategy == "ContraGAN":
-                            gen_acml_loss += self.contrastive_lambda*self.contrastive_criterion(cls_embed_fake, cls_proxies_fake, fake_cls_mask, fake_labels, t, self.margin)
-                        elif self.conditional_strategy == "Proxy_NCA_GAN":
-                            gen_acml_loss += self.contrastive_lambda*self.NCA_criterion(cls_embed_fake, cls_proxies_fake, fake_labels)
-                        elif self.conditional_strategy == "NT_Xent_GAN":
-                            fake_images_aug = CR_DiffAug(fake_images)
-                            _, cls_embed_fake_aug, dis_out_fake_aug = self.dis_model(fake_images_aug, fake_labels)
-                            gen_acml_loss += self.contrastive_lambda*self.NT_Xent_criterion(cls_embed_fake, cls_embed_fake_aug, t)
-                        else:
-                            pass
 
                         gen_acml_loss = gen_acml_loss/self.accumulation_steps
 
@@ -888,12 +818,8 @@ class make_worker(object):
                 real_images, real_labels = real_images.to(self.local_rank), real_labels.to(self.local_rank)
                 fake_images = generator(zs, fake_labels, evaluation=True)
 
-                if self.conditional_strategy == "ACGAN":
-                    cls_out_real, dis_out_real = self.dis_model(real_images, real_labels)
-                elif self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
-                    dis_out_real = self.dis_model(real_images, real_labels)
-                elif self.conditional_strategy in ["NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
-                    cls_proxies_real, cls_embed_real, dis_out_real = self.dis_model(real_images, real_labels)
+                if self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
+                    dis_out_real = self.dis_model(real_images)
                 else:
                     raise NotImplementedError
 
@@ -906,12 +832,8 @@ class make_worker(object):
 
                 save_output.clear()
 
-                if self.conditional_strategy == "ACGAN":
-                    cls_out_fake, dis_out_fake = self.dis_model(fake_images, fake_labels)
-                elif self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
-                    dis_out_fake = self.dis_model(fake_images, fake_labels)
-                elif self.conditional_strategy in ["NT_Xent_GAN", "Proxy_NCA_GAN", "ContraGAN"]:
-                    cls_proxies_fake, cls_embed_fake, dis_out_fake = self.dis_model(fake_images, fake_labels)
+                if self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
+                    dis_out_fake = self.dis_model(fake_images)
                 else:
                     raise NotImplementedError
 
