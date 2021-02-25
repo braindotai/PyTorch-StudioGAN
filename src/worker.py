@@ -349,7 +349,6 @@ class make_worker(object):
 
                         if self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
                             dis_out_fake = self.dis_model(fake_images)
-                            raise NotImplementedError
 
                         gen_acml_loss = self.G_loss(dis_out_fake, fake_labels)
 
