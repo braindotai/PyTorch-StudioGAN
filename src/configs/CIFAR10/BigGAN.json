@@ -48,7 +48,7 @@
       },
   
       "loss_function": {
-        "adv_loss": "hinge",
+        "adv_loss": "acs",
   
         "contrastive_lambda": "N/A",
         "margin": "N/A", 
