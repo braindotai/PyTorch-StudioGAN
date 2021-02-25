@@ -632,7 +632,7 @@ class make_worker(object):
                 self.writer.add_scalars('F_beta_inv score', {'{num} generated images'.format(num=str(self.num_eval[self.eval_type])):f_beta_inv}, step)
                 self.writer.add_scalars('IS score', {'{num} generated images'.format(num=str(self.num_eval[self.eval_type])):kl_score}, step)
                 self.writer.add_figure('PR_Curve', PR_Curve, global_step=step)
-                if self.conditional_strategy in ['ProjGAN', 'ContraGAN', 'Proxy_NCA_GAN']:
+                if self.conditional_strategy in ['ProjGAN', 'ContraGAN', 'Proxy_NCA_GAN', 'ContraGAN++']:
                     self.writer.add_figure('Similarity_heatmap', sim_heatmap, global_step=step)
                 self.logger.info('F_{beta} score (Step: {step}, Using {type} images): {F_beta}'.format(beta=beta4PR, step=step, type=self.eval_type, F_beta=f_beta))
                 self.logger.info('F_1/{beta} score (Step: {step}, Using {type} images): {F_beta_inv}'.format(beta=beta4PR, step=step, type=self.eval_type, F_beta_inv=f_beta_inv))
