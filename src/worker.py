@@ -284,7 +284,7 @@ class make_worker(object):
 
                         if self.zcr:
                             fake_images_zaug = self.gen_model(zs_t, fake_labels)
-                            elif self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
+                            if self.conditional_strategy == "ProjGAN" or self.conditional_strategy == "no":
                                 dis_out_fake_zaug = self.dis_model(fake_images_zaug)
                             else:
                                 raise NotImplementedError
