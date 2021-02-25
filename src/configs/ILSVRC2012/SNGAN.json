@@ -15,6 +15,7 @@
       "conditional_strategy": "ProjGAN",
       "pos_collected_numerator": false,
       "hypersphere_dim": "N/A",
+      "bottleneck_dim": "N/A",
       "nonlinear_embed": false,
       "normalize_embed": false,
       "g_spectral_norm": false,

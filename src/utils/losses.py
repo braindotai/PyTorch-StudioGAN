@@ -75,7 +75,7 @@ def latent_optimise(zs, fake_labels, gen_model, dis_model, conditional_strategy,
 
 
 def set_temperature(conditional_strategy, tempering_type, start_temperature, end_temperature, step_count, tempering_step, total_step):
-    if conditional_strategy == 'ContraGAN':
+    if conditional_strategy in ['ContraGAN', 'ContraGAN++']:
         if tempering_type == 'continuous':
             t = start_temperature + step_count*(end_temperature - start_temperature)/total_step
         elif tempering_type == 'discrete':
@@ -89,9 +89,9 @@ def set_temperature(conditional_strategy, tempering_type, start_temperature, end
     return t
 
 
-class Cross_Entropy_loss(torch.nn.Module):
+class Cross_Entropy_Loss(torch.nn.Module):
     def __init__(self, in_features, out_features, spectral_norm=True):
-        super(Cross_Entropy_loss, self).__init__()
+        super(Cross_Entropy_Loss, self).__init__()
 
         if spectral_norm:
             self.layer =  snlinear(in_features=in_features, out_features=out_features, bias=True)
@@ -104,9 +104,9 @@ class Cross_Entropy_loss(torch.nn.Module):
         return self.ce_loss(logits, labels)
 
 
-class Conditional_Contrastive_loss(torch.nn.Module):
+class Conditional_Contrastive_Loss(torch.nn.Module):
     def __init__(self, device, batch_size, pos_collected_numerator):
-        super(Conditional_Contrastive_loss, self).__init__()
+        super(Conditional_Contrastive_Loss, self).__init__()
         self.device = device
         self.batch_size = batch_size
         self.pos_collected_numerator = pos_collected_numerator
@@ -151,9 +151,53 @@ class Conditional_Contrastive_loss(torch.nn.Module):
         return criterion
 
 
-class Proxy_NCA_loss(torch.nn.Module):
+class Conditional_Contrastive_Loss_Plus(torch.nn.Module):
+    def __init__(self, device, batch_size):
+        super(Conditional_Contrastive_Loss_Plus, self).__init__()
+        self.device = device
+        self.batch_size = batch_size
+        self.calculate_similarity_matrix = self._calculate_similarity_matrix()
+        self.cosine_similarity = torch.nn.CosineSimilarity(dim=-1)
+
+
+    def _calculate_similarity_matrix(self):
+        return self._cosine_simililarity_matrix
+
+
+    def remove_diag(self, M):
+        h, w = M.shape
+        assert h==w, "h and w should be same"
+        mask = np.ones((h, w)) - np.eye(h)
+        mask = torch.from_numpy(mask)
+        mask = (mask).type(torch.bool).to(self.device)
+        return M[mask].view(h, -1)
+
+
+    def _cosine_simililarity_matrix(self, x, y):
+        v = self.cosine_similarity(x.unsqueeze(1), y.unsqueeze(0))
+        return v
+
+
+    def forward(self, inst_embed, proxy, negative_mask, labels, temperature, margin):
+        similarity_matrix = self.calculate_similarity_matrix(inst_embed, inst_embed)/temperature
+        similarity_matrix = self.remove_diag(similarity_matrix)
+        similarity_max, _ = torch.max(similarity_matrix, dim=1, keepdim=True)
+        similarity_matrix = similarity_matrix - similarity_max.detach()
+
+        inst2proxy_positive = self.cosine_similarity(inst_embed, proxy)
+        mask_4_remove_positives = self.remove_diag(negative_mask[labels])
+        inst2inst_negatives = mask_4_remove_positives*torch.exp(similarity_matrix)
+
+        pos_loss = F.relu((margin - inst2proxy_positive)/temperature)
+        neg_loss = torch.log(torch.exp(inst2proxy_positive/temperature) + inst2inst_negatives.sum(dim=1))
+
+        criterion = pos_loss + neg_loss
+        return criterion.mean()
+
+
+class Proxy_NCA_Loss(torch.nn.Module):
     def __init__(self, device, embedding_layer, num_classes, batch_size):
-        super(Proxy_NCA_loss, self).__init__()
+        super(Proxy_NCA_Loss, self).__init__()
         self.device = device
         self.embedding_layer = embedding_layer
         self.num_classes = num_classes
@@ -181,9 +225,9 @@ class Proxy_NCA_loss(torch.nn.Module):
         return criterion
 
 
-class NT_Xent_loss(torch.nn.Module):
+class NT_Xent_Loss(torch.nn.Module):
     def __init__(self, device, batch_size, use_cosine_similarity=True):
-        super(NT_Xent_loss, self).__init__()
+        super(NT_Xent_Loss, self).__init__()
         self.device = device
         self.batch_size = batch_size
         self.softmax = torch.nn.Softmax(dim=-1)
@@ -258,7 +302,7 @@ def calc_derv4gp(netD, conditional_strategy, real_data, fake_data, real_labels, 
     interpolates = interpolates.to(device)
     interpolates = autograd.Variable(interpolates, requires_grad=True)
 
-    if conditional_strategy in ['ContraGAN', "Proxy_NCA_GAN", "NT_Xent_GAN"]:
+    if conditional_strategy in ['ContraGAN', "Proxy_NCA_GAN", "NT_Xent_GAN", "ContraGAN++"]:
         _, _, disc_interpolates = netD(interpolates, real_labels)
     elif conditional_strategy in ['ProjGAN', 'no']:
             disc_interpolates = netD(interpolates, real_labels)
@@ -288,7 +332,7 @@ def calc_derv4dra(netD, conditional_strategy, real_data, real_labels, device):
     interpolates = interpolates.to(device)
     interpolates = autograd.Variable(interpolates, requires_grad=True)
 
-    if conditional_strategy in ['ContraGAN', "Proxy_NCA_GAN", "NT_Xent_GAN"]:
+    if conditional_strategy in ['ContraGAN', "Proxy_NCA_GAN", "NT_Xent_GAN", "ContraGAN++"]:
         _, _, disc_interpolates = netD(interpolates, real_labels)
     elif conditional_strategy in ['ProjGAN', 'no']:
             disc_interpolates = netD(interpolates, real_labels)
@@ -310,7 +354,7 @@ def calc_derv(inputs, labels, netD, conditional_strategy, device, netG=None):
     zs = autograd.Variable(inputs, requires_grad=True)
     fake_images = netG(zs, labels)
 
-    if conditional_strategy in ['ContraGAN', "Proxy_NCA_GAN", "NT_Xent_GAN"]:
+    if conditional_strategy in ['ContraGAN', "Proxy_NCA_GAN", "NT_Xent_GAN", "ContraGAN++"]:
         _, _, dis_out_fake = netD(fake_images, labels)
     elif conditional_strategy in ['ProjGAN', 'no']:
         dis_out_fake = netD(fake_images, labels)

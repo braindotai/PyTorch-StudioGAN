@@ -36,7 +36,7 @@ def prepare_train_eval(local_rank, gpus_per_node, world_size, run_name, train_co
     assert cfgs.bn_stat_OnTheFly*cfgs.standing_statistics == 0,\
     "You can't turn on train_statistics and standing_statistics simultaneously."
     if cfgs.train_configs['train']*cfgs.standing_statistics:
-        print("When training, StudioGAN does not apply standing_statistics for evaluation. "+\
+        print("When training, StudioGAN does not apply standing_statistics for evaluation. " + \
               "After training is done, StudioGAN will accumulate batchnorm statistics and evaluate the trained model")
 
     prev_ada_p, step, best_step, best_fid, best_fid_checkpoint_path, mu, sigma, inception_model = None, 0, 0, None, None, None, None, None
@@ -87,13 +87,28 @@ def prepare_train_eval(local_rank, gpus_per_node, world_size, run_name, train_co
     if local_rank == 0: logger.info('Build model...')
     module = __import__('models.{architecture}'.format(architecture=cfgs.architecture), fromlist=['something'])
     if local_rank == 0: logger.info('Modules are located on models.{architecture}.'.format(architecture=cfgs.architecture))
+
     Gen = module.Generator(cfgs.z_dim, cfgs.shared_dim, cfgs.img_size, cfgs.g_conv_dim, cfgs.g_spectral_norm, cfgs.attention,
                            cfgs.attention_after_nth_gen_block, cfgs.activation_fn, cfgs.conditional_strategy, cfgs.num_classes,
                            cfgs.g_init, cfgs.G_depth, cfgs.mixed_precision).to(local_rank)
 
-    Dis = module.Discriminator(cfgs.img_size, cfgs.d_conv_dim, cfgs.d_spectral_norm, cfgs.attention, cfgs.attention_after_nth_dis_block,
-                               cfgs.activation_fn, cfgs.conditional_strategy, cfgs.hypersphere_dim, cfgs.num_classes, cfgs.nonlinear_embed,
-                               cfgs.normalize_embed, cfgs.d_init, cfgs.D_depth, cfgs.mixed_precision).to(local_rank)
+    if cfgs.architecture == 'T2T_ViT':
+        if cfgs.dataset_name == 'cifar10':
+            T2T_cfgs = {'embed_dim':128+64, 'depth':8, 'num_heads':4, 'mlp_ratio':3, 'token_dim':64}
+        elif cfgs.dataset_name == 'tiny_imagenet':
+            T2T_cfgs = {'embed_dim':384, 'depth':14, 'num_heads':6, 'mlp_ratio':3, 'token_dim':64}
+        else:
+            T2T_cfgs = {'embed_dim':512, 'depth':24, 'num_heads':8, 'mlp_ratio':3, 'token_dim':64}
+
+        Dis = module.Discriminator(cfgs.dataset_name, cfgs.img_size, cfgs.batch_size, 'transformer', T2T_cfgs['token_dim'], cfgs.num_classes,
+                                   T2T_cfgs['embed_dim'], T2T_cfgs['depth'], T2T_cfgs['num_heads'], T2T_cfgs['mlp_ratio'],
+                                   cfgs.hypersphere_dim, cfgs.bottleneck_dim, cfgs.normalize_embed, False, None, cfgs.activation_fn, 
+                                   cfgs.conditional_strategy, 0.0, 0.0, 0.0, cfgs.d_spectral_norm, cfgs.d_init, cfgs.mixed_precision).to(local_rank)
+
+    else:
+        Dis = module.Discriminator(cfgs.img_size, cfgs.d_conv_dim, cfgs.d_spectral_norm, cfgs.attention, cfgs.attention_after_nth_dis_block,
+                                cfgs.activation_fn, cfgs.conditional_strategy, cfgs.hypersphere_dim, cfgs.bottleneck_dim, cfgs.num_classes, 
+                                cfgs.nonlinear_embed, cfgs.normalize_embed, cfgs.d_init, cfgs.D_depth, cfgs.mixed_precision).to(local_rank)
 
     if cfgs.ema:
         if local_rank == 0: logger.info('Prepare EMA for G with decay of {}.'.format(cfgs.ema_decay))
