@@ -357,9 +357,9 @@ class Discriminator(nn.Module):
             raise NotImplementedError
 
         if d_spectral_norm:
-            self.linear1 = snlinear(in_features=self.out_dims[-1], out_features=1)
+            self.linear1 = snlinear(in_features=self.out_dims[-1], out_features = num_classes)
         else:
-            self.linear1 = linear(in_features=self.out_dims[-1], out_features=1)
+            self.linear1 = linear(in_features=self.out_dims[-1], out_features = num_classes)
         # Weight init
         if initialize is not False:
             init_weights(self.modules, initialize)
