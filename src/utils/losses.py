@@ -16,15 +16,14 @@ from torch.nn import DataParallel
 from torch import autograd
 
 def loss_acs_gen(dis_out_fake, fake_labels):
-    false_distribution_loss = -torch.mean(F.one_hot(fake_labels, 10) * nn.LogSigmoid()(dis_out_fake + 1e-8))
+    false_distribution_loss = -torch.mean(F.one_hot(fake_labels, 10) * torch.log(dis_out_fake.sigmoid() + 1e-8))
     return false_distribution_loss
     
 def loss_acs_dis(dis_out_real, real_labels, dis_out_fake, fake_labels):
-    real_distribution_loss = -torch.mean(F.one_hot(real_labels, 10) * nn.LogSigmoid()(dis_out_real + 1e-8))
-    real_complementary_loss = -torch.mean((1 - F.one_hot(real_labels, 10)) * nn.LogSigmoid()(1 - dis_out_real + 1e-8))
-    fake_distribution_loss = -torch.mean(F.one_hot(fake_labels, 10) * nn.LogSigmoid()(1 - dis_out_fake + 1e-8))
-    fake_complementary_loss = -torch.mean((1 - F.one_hot(fake_labels, 10)) * nn.LogSigmoid()(1 - dis_out_fake + 1e-8))
-    return real_distribution_loss + real_complementary_loss + fake_distribution_loss + fake_complementary_loss
+    real_distribution_loss = -torch.mean(F.one_hot(real_labels, 10) * torch.log(dis_out_real.sigmoid() + 1e-8))
+    real_complementary_loss = -torch.mean((1 - F.one_hot(real_labels, 10)) * torch.log(1 - dis_out_real.sigmoid() + 1e-8))
+    fake_distribution_loss = -torch.mean(F.one_hot(fake_labels, 10) * torch.log(1 - dis_out_fake.sigmoid() + 1e-8))
+    return real_distribution_loss + real_complementary_loss + fake_distribution_loss
 
 # DCGAN loss
 

@@ -18,6 +18,9 @@ class GenBlock(nn.Module):
     def __init__(self, in_channels, out_channels, g_spectral_norm, activation_fn, conditional_bn, z_dims_after_concat):
         super(GenBlock, self).__init__()
         self.conditional_bn = conditional_bn
+        
+        print('conditional_bn:', self.conditional_bn)
+        print('g_spectral_norm:', g_spectral_norm)
 
         if self.conditional_bn:
             self.bn1 = ConditionalBatchNorm2d_for_skip_and_shared(num_features=in_channels, z_dims_after_concat=z_dims_after_concat,

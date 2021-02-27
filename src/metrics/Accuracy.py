@@ -17,13 +17,16 @@ import torch
 from torch.nn import DataParallel
 from torch.nn.parallel import DistributedDataParallel
 
-
+def batch_correct(outputs, labels):
+    return (outputs.argmax(1) == labels).float().sum()
 
 def calculate_accuracy(dataloader, generator, discriminator, D_loss, num_evaluate, truncated_factor, prior, latent_op,
                        latent_op_step, latent_op_alpha, latent_op_beta, device, cr, logger, eval_generated_sample=False):
     data_iter = iter(dataloader)
     batch_size = dataloader.batch_size
     disable_tqdm = device != 0
+    discriminator.eval()
+    generator.eval()
 
     if isinstance(generator, DataParallel) or isinstance(generator, DistributedDataParallel):
         z_dim = generator.module.z_dim
@@ -34,19 +37,15 @@ def calculate_accuracy(dataloader, generator, discriminator, D_loss, num_evaluat
         num_classes = generator.num_classes
         conditional_strategy = discriminator.conditional_strategy
 
-    total_batch = num_evaluate//batch_size
-
-    if D_loss.__name__ in ["loss_dcgan_dis", "loss_lsgan_dis"]:
-        cutoff = 0.5
-    elif D_loss.__name__ == "loss_hinge_dis":
-        cutoff = 0.0
-    elif D_loss.__name__ == "loss_wgan_dis":
-        raise NotImplementedError
-
-    if device == 0: logger.info("Calculate Accuracies....")
+    total_batch = num_evaluate // batch_size
+    print('Total Batch:', total_batch)
 
     if eval_generated_sample:
-        for batch_id in tqdm(range(total_batch), disable=disable_tqdm):
+        logger.info("Calculating accuracies for real and fake images....")
+        cum_fake_acc = 0.0
+        cum_real_acc = 0.0
+        cum_total = 0.0
+        for batch_id in tqdm(range(total_batch), disable = False):
             zs, fake_labels = sample_latents(prior, batch_size, z_dim, truncated_factor, num_classes, None, device)
             if latent_op:
                 zs = latent_optimise(zs, fake_labels, generator, discriminator, conditional_strategy, latent_op_step,
@@ -58,64 +57,37 @@ def calculate_accuracy(dataloader, generator, discriminator, D_loss, num_evaluat
             fake_images = generator(zs, fake_labels, evaluation=True)
 
             with torch.no_grad():
-                if conditional_strategy in ["ContraGAN", "Proxy_NCA_GAN", "NT_Xent_GAN"]:
-                    _, _, dis_out_fake = discriminator(fake_images, fake_labels)
-                    _, _, dis_out_real = discriminator(real_images, real_labels)
-                elif conditional_strategy == "ACGAN":
-                    _, dis_out_fake = discriminator(fake_images, fake_labels)
-                    _, dis_out_real = discriminator(real_images, real_labels)
-                elif conditional_strategy == "ProjGAN" or conditional_strategy == "no":
-                    dis_out_fake = discriminator(fake_images, fake_labels)
-                    dis_out_real = discriminator(real_images, real_labels)
-                else:
-                    raise NotImplementedError
+                dis_out_fake = discriminator(fake_images, fake_labels)
+                dis_out_real = discriminator(real_images, real_labels)
 
-                dis_out_fake = dis_out_fake.detach().cpu().numpy()
-                dis_out_real = dis_out_real.detach().cpu().numpy()
+            cum_real_acc += batch_correct(dis_out_real, real_labels)
+            cum_fake_acc += batch_correct(dis_out_fake, fake_labels)
+            cum_total += real_images.size(0)
+        
+        print('Test Acc:', cum_real_acc.item() / cum_total)
+        print('Fake Acc:', cum_fake_acc.item() / cum_total)
 
-            if batch_id == 0:
-                confid = np.concatenate((dis_out_fake, dis_out_real), axis=0)
-                confid_label = np.concatenate(([0.0]*len(dis_out_fake), [1.0]*len(dis_out_real)), axis=0)
-            else:
-                confid = np.concatenate((confid, dis_out_fake, dis_out_real), axis=0)
-                confid_label = np.concatenate((confid_label, [0.0]*len(dis_out_fake), [1.0]*len(dis_out_real)), axis=0)
+        discriminator.train()
+        generator.train()
 
-        real_confid = confid[confid_label==1.0]
-        fake_confid = confid[confid_label==0.0]
-
-        true_positive = real_confid[np.where(real_confid>cutoff)]
-        true_negative = fake_confid[np.where(fake_confid<cutoff)]
-
-        only_real_acc = len(true_positive)/len(real_confid)
-        only_fake_acc = len(true_negative)/len(fake_confid)
-
-        return only_real_acc, only_fake_acc
+        return cum_real_acc.item() / cum_total, cum_fake_acc.item() / cum_total
     else:
-        for batch_id in tqdm(range(total_batch), disable=disable_tqdm):
+        logger.info("Calculating accuracies for real images....")
+        cum_real_acc = 0.0
+        cum_total = 0.0
+        for batch_id in tqdm(range(total_batch), disable = False):
             real_images, real_labels = next(data_iter)
             real_images, real_labels = real_images.to(device), real_labels.to(device)
 
             with torch.no_grad():
-                if conditional_strategy in ["ContraGAN", "Proxy_NCA_GAN", "NT_Xent_GAN"]:
-                    _, _, dis_out_real = discriminator(real_images, real_labels)
-                elif conditional_strategy == "ACGAN":
-                    _, dis_out_real = discriminator(real_images, real_labels)
-                elif conditional_strategy == "ProjGAN" or conditional_strategy == "no":
-                    dis_out_real = discriminator(real_images, real_labels)
-                else:
-                    raise NotImplementedError
+                dis_out_real = discriminator(real_images, real_labels)
+            
+            cum_real_acc += batch_correct(dis_out_real, real_labels)
+            cum_total += real_images.size(0)
+        
+        print('Test Acc:', cum_real_acc.item() / cum_total)
+        discriminator.train()
+        generator.train()
 
-                dis_out_real = dis_out_real.detach().cpu().numpy()
-
-            if batch_id == 0:
-                confid = dis_out_real
-                confid_label = np.asarray([1.0]*len(dis_out_real), np.float32)
-            else:
-                confid = np.concatenate((confid, dis_out_real), axis=0)
-                confid_label = np.concatenate((confid_label, [1.0]*len(dis_out_real)), axis=0)
-
-        real_confid = confid[confid_label==1.0]
-        true_positive = real_confid[np.where(real_confid>cutoff)]
-        only_real_acc = len(true_positive)/len(real_confid)
-
-        return only_real_acc
+        return cum_real_acc.item() / cum_total
+        
